@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Management</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Student Management System</h1>
+            <p class="subtitle">Manage 50 students &mdash; backed by Supabase</p>
+        </header>
+
+        <!-- Add / Edit Form -->
+        <div class="card form-card" id="studentFormCard">
+            <h2 id="formTitle">Add New Student</h2>
+            <form id="studentForm">
+                <input type="hidden" id="studentId">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="name">Name</label>
+                        <input type="text" id="name" placeholder="Full name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="email">Email</label>
+                        <input type="email" id="email" placeholder="email@college.edu" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="age">Age</label>
+                        <input type="number" id="age" min="10" max="100" placeholder="Age" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="course">Course</label>
+                        <select id="course" required>
+                            <option value="">Select course</option>
+                            <option>Computer Science</option>
+                            <option>Mathematics</option>
+                            <option>Physics</option>
+                            <option>Chemistry</option>
+                            <option>Biology</option>
+                            <option>English Literature</option>
+                            <option>Economics</option>
+                            <option>Commerce</option>
+                            <option>Mechanical Engineering</option>
+                            <option>Electrical Engineering</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary" id="submitBtn">Add Student</button>
+                    <button type="button" class="btn btn-secondary" id="cancelBtn" style="display:none">Cancel</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Status -->
+        <div id="status" class="status" style="display:none"></div>
+
+        <!-- Table -->
+        <div class="card">
+            <div class="table-header">
+                <h2>Students <span id="countBadge" class="badge">0</span></h2>
+                <input type="text" id="searchInput" placeholder="Search by name, email or course..." class="search-box">
+            </div>
+            <div class="table-wrapper">
+                <table id="studentTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Age</th>
+                            <th>Course</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="studentBody"></tbody>
+                </table>
+            </div>
+            <div id="emptyState" class="empty-state" style="display:none">
+                No students found.
+            </div>
+            <!-- Pagination -->
+            <div class="pagination" id="pagination"></div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div class="modal-overlay" id="deleteModal" style="display:none">
+        <div class="modal">
+            <h3>Confirm Delete</h3>
+            <p>Are you sure you want to delete <strong id="deleteStudentName"></strong>?</p>
+            <div class="modal-actions">
+                <button class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
+                <button class="btn btn-secondary" id="cancelDeleteBtn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = "/api/students";
+        let currentPage = 1;
+        const perPage = 50;
+        let deleteId = null;
+
+        // ── DOM refs ──
+        const form         = document.getElementById("studentForm");
+        const formTitle    = document.getElementById("formTitle");
+        const submitBtn    = document.getElementById("submitBtn");
+        const cancelBtn    = document.getElementById("cancelBtn");
+        const studentIdInp = document.getElementById("studentId");
+        const tbody        = document.getElementById("studentBody");
+        const countBadge   = document.getElementById("countBadge");
+        const pagination   = document.getElementById("pagination");
+        const emptyState   = document.getElementById("emptyState");
+        const statusEl     = document.getElementById("status");
+        const searchInput  = document.getElementById("searchInput");
+        const deleteModal  = document.getElementById("deleteModal");
+        const deleteNameEl = document.getElementById("deleteStudentName");
+
+        // ── Helpers ──
+        function showStatus(msg, type = "success") {
+            statusEl.textContent = msg;
+            statusEl.className = `status ${type}`;
+            statusEl.style.display = "block";
+            setTimeout(() => { statusEl.style.display = "none"; }, 3000);
+        }
+
+        function resetForm() {
+            form.reset();
+            studentIdInp.value = "";
+            formTitle.textContent = "Add New Student";
+            submitBtn.textContent = "Add Student";
+            cancelBtn.style.display = "none";
+        }
+
+        // ── Fetch & Render ──
+        async function loadStudents(page = 1) {
+            try {
+                const res = await fetch(`${API}?page=${page}&per_page=${perPage}`);
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
+                tbody.innerHTML = "";
+                countBadge.textContent = data.total || 0;
+
+                if (!data.students || data.students.length === 0) {
+                    emptyState.style.display = "block";
+                    document.getElementById("studentTable").style.display = "none";
+                } else {
+                    emptyState.style.display = "none";
+                    document.getElementById("studentTable").style.display = "table";
+                    data.students.forEach((s, i) => {
+                        const tr = document.createElement("tr");
+                        tr.innerHTML = `
+                            <td>${(page - 1) * perPage + i + 1}</td>
+                            <td>${esc(s.name)}</td>
+                            <td>${esc(s.email)}</td>
+                            <td>${s.age}</td>
+                            <td><span class="badge-course">${esc(s.course)}</span></td>
+                            <td class="actions">
+                                <button class="btn btn-sm btn-edit" onclick="editStudent(${s.id})">Edit</button>
+                                <button class="btn btn-sm btn-delete" onclick="openDeleteModal(${s.id}, '${esc(s.name)}')">Delete</button>
+                            </td>`;
+                        tbody.appendChild(tr);
+                    });
+                }
+
+                currentPage = data.page;
+                renderPagination(data.total);
+            } catch (err) {
+                showStatus("Failed to load students: " + err.message, "error");
+            }
+        }
+
+        function renderPagination(total) {
+            const pages = Math.ceil(total / perPage);
+            pagination.innerHTML = "";
+            if (pages <= 1) return;
+            for (let p = 1; p <= pages; p++) {
+                const btn = document.createElement("button");
+                btn.textContent = p;
+                btn.className = `btn btn-page ${p === currentPage ? "active" : ""}`;
+                btn.onclick = () => loadStudents(p);
+                pagination.appendChild(btn);
+            }
+        }
+
+        function esc(str) {
+            const d = document.createElement("div");
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        // ── Create / Update ──
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const body = {
+                name:   document.getElementById("name").value.trim(),
+                email:  document.getElementById("email").value.trim(),
+                age:    document.getElementById("age").value,
+                course: document.getElementById("course").value,
+            };
+
+            try {
+                const id = studentIdInp.value;
+                let res;
+                if (id) {
+                    res = await fetch(`${API}/${id}`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(body),
+                    });
+                } else {
+                    res = await fetch(API, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(body),
+                    });
+                }
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
+                showStatus(id ? "Student updated!" : "Student added!");
+                resetForm();
+                loadStudents(currentPage);
+            } catch (err) {
+                showStatus(err.message, "error");
+            }
+        });
+
+        // ── Edit ──
+        async function editStudent(id) {
+            try {
+                const res = await fetch(`${API}?page=1&per_page=${perPage}`);
+                const data = await res.json();
+                const student = (data.students || []).find(s => s.id === id);
+                if (!student) { showStatus("Student not found", "error"); return; }
+
+                studentIdInp.value = student.id;
+                document.getElementById("name").value   = student.name;
+                document.getElementById("email").value  = student.email;
+                document.getElementById("age").value    = student.age;
+                document.getElementById("course").value = student.course;
+
+                formTitle.textContent = "Edit Student";
+                submitBtn.textContent = "Update Student";
+                cancelBtn.style.display = "inline-block";
+                document.getElementById("studentFormCard").scrollIntoView({ behavior: "smooth" });
+            } catch (err) {
+                showStatus(err.message, "error");
+            }
+        }
+
+        cancelBtn.addEventListener("click", resetForm);
+
+        // ── Delete ──
+        function openDeleteModal(id, name) {
+            deleteId = id;
+            deleteNameEl.textContent = name;
+            deleteModal.style.display = "flex";
+        }
+
+        document.getElementById("cancelDeleteBtn").addEventListener("click", () => {
+            deleteModal.style.display = "none";
+            deleteId = null;
+        });
+
+        document.getElementById("confirmDeleteBtn").addEventListener("click", async () => {
+            if (!deleteId) return;
+            try {
+                const res = await fetch(`${API}/${deleteId}`, { method: "DELETE" });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+                showStatus("Student deleted!");
+                deleteModal.style.display = "none";
+                deleteId = null;
+                loadStudents(currentPage);
+            } catch (err) {
+                showStatus(err.message, "error");
+            }
+        });
+
+        // ── Search (client-side filter) ──
+        searchInput.addEventListener("input", () => {
+            const q = searchInput.value.toLowerCase();
+            const rows = tbody.querySelectorAll("tr");
+            rows.forEach(tr => {
+                const text = tr.textContent.toLowerCase();
+                tr.style.display = text.includes(q) ? "" : "none";
+            });
+        });
+
+        // ── Init ──
+        loadStudents();
+    </script>
+</body>
+</html>
