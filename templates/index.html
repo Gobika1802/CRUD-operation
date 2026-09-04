@@ -9,9 +9,30 @@
 <body>
     <div class="container">
         <header>
+            <div class="logo">&#127891;</div>
             <h1>Student Management System</h1>
-            <p class="subtitle">Manage 50 students &mdash; backed by Supabase</p>
+            <p class="subtitle">Manage your students &mdash; backed by Supabase</p>
         </header>
+
+        <!-- Stats bar -->
+        <div class="stats">
+            <div class="stat">
+                <div class="icon primary">&#128101;</div>
+                <div><div class="value" id="statTotal">0</div><div class="label">Total Students</div></div>
+            </div>
+            <div class="stat">
+                <div class="icon accent">&#127891;</div>
+                <div><div class="value" id="statCourses">0</div><div class="label">Courses</div></div>
+            </div>
+            <div class="stat">
+                <div class="icon success">&#9899;</div>
+                <div><div class="value" id="statAvgAge">0</div><div class="label">Avg Age</div></div>
+            </div>
+            <div class="stat">
+                <div class="icon amber">&#9889;</div>
+                <div><div class="value" id="statYoungest">0</div><div class="label">Youngest</div></div>
+            </div>
+        </div>
 
         <!-- Add / Edit Form -->
         <div class="card form-card" id="studentFormCard">
@@ -71,8 +92,7 @@
                     <thead>
                         <tr>
                             <th>#</th>
-                            <th>Name</th>
-                            <th>Email</th>
+                            <th>Student</th>
                             <th>Age</th>
                             <th>Course</th>
                             <th>Actions</th>
@@ -82,7 +102,9 @@
                 </table>
             </div>
             <div id="emptyState" class="empty-state" style="display:none">
-                No students found.
+                <div class="em">&#128533;</div>
+                <p class="title">No students found</p>
+                <p>Try adding a new student or clearing your search.</p>
             </div>
             <!-- Pagination -->
             <div class="pagination" id="pagination"></div>
@@ -92,14 +114,17 @@
     <!-- Delete Confirmation Modal -->
     <div class="modal-overlay" id="deleteModal" style="display:none">
         <div class="modal">
+            <div class="modal-icon">&#128465;&#65039;</div>
             <h3>Confirm Delete</h3>
-            <p>Are you sure you want to delete <strong id="deleteStudentName"></strong>?</p>
+            <p>Are you sure you want to delete <strong id="deleteStudentName"></strong>? This action cannot be undone.</p>
             <div class="modal-actions">
                 <button class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
                 <button class="btn btn-secondary" id="cancelDeleteBtn">Cancel</button>
             </div>
         </div>
     </div>
+
+    <footer>Student Management System &mdash; Supabase powered</footer>
 
     <script>
         const API = "/api/students";
@@ -121,6 +146,10 @@
         const searchInput  = document.getElementById("searchInput");
         const deleteModal  = document.getElementById("deleteModal");
         const deleteNameEl = document.getElementById("deleteStudentName");
+        const statTotal    = document.getElementById("statTotal");
+        const statCourses  = document.getElementById("statCourses");
+        const statAvgAge   = document.getElementById("statAvgAge");
+        const statYoungest = document.getElementById("statYoungest");
 
         // ── Helpers ──
         function showStatus(msg, type = "success") {
@@ -147,6 +176,7 @@
 
                 tbody.innerHTML = "";
                 countBadge.textContent = data.total || 0;
+                updateStats(data.students || []);
 
                 if (!data.students || data.students.length === 0) {
                     emptyState.style.display = "block";
@@ -156,11 +186,16 @@
                     document.getElementById("studentTable").style.display = "table";
                     data.students.forEach((s, i) => {
                         const tr = document.createElement("tr");
+                        const initials = (s.name || "").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
                         tr.innerHTML = `
                             <td>${(page - 1) * perPage + i + 1}</td>
-                            <td>${esc(s.name)}</td>
-                            <td>${esc(s.email)}</td>
-                            <td>${s.age}</td>
+                            <td>
+                                <div class="student-cell">
+                                    <span class="avatar">${esc(initials)}</span>
+                                    <div><div class="name">${esc(s.name)}</div><div class="email">${esc(s.email)}</div></div>
+                                </div>
+                            </td>
+                            <td><span class="age-pill">${s.age}</span></td>
                             <td><span class="badge-course">${esc(s.course)}</span></td>
                             <td class="actions">
                                 <button class="btn btn-sm btn-edit" onclick="editStudent(${s.id})">Edit</button>
@@ -194,6 +229,20 @@
             const d = document.createElement("div");
             d.textContent = str;
             return d.innerHTML;
+        }
+
+        function updateStats(students) {
+            statTotal.textContent = students.length;
+            const courses = new Set(students.map(s => s.course).filter(Boolean));
+            statCourses.textContent = courses.size;
+            const ages = students.map(s => s.age).filter(a => typeof a === "number");
+            if (ages.length) {
+                statAvgAge.textContent = (ages.reduce((a, b) => a + b, 0) / ages.length).toFixed(1);
+                statYoungest.textContent = Math.min(...ages);
+            } else {
+                statAvgAge.textContent = "0";
+                statYoungest.textContent = "0";
+            }
         }
 
         // ── Create / Update ──
@@ -289,10 +338,14 @@
         searchInput.addEventListener("input", () => {
             const q = searchInput.value.toLowerCase();
             const rows = tbody.querySelectorAll("tr");
+            let visible = 0;
             rows.forEach(tr => {
                 const text = tr.textContent.toLowerCase();
-                tr.style.display = text.includes(q) ? "" : "none";
+                const show = text.includes(q);
+                tr.style.display = show ? "" : "none";
+                if (show) visible++;
             });
+            countBadge.textContent = visible;
         });
 
         // ── Init ──
